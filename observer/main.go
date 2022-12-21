@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"observer/auditor"
+	"github.com/maximorov/auditor"
 	"observer/observer"
 	"time"
 )
