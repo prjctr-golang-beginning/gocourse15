@@ -1,28 +1,26 @@
 package pubsub
 
 import (
-	"bytes"
 	"context"
-
-	"gitlab.rozetka.company/goods-service/log"
+	"log"
 )
 
 type (
 	Subscriber interface {
-		Notify(ctx context.Context, body interface{}, error chan error)
+		Notify(ctx context.Context, body any, error chan error)
 		Name() string
 		Close() error
 	}
 
 	Publisher interface {
-		Publish(ctx context.Context, body interface{}, err chan error)
+		Publish(ctx context.Context, body any, err chan error)
 		AddSubscriber(s Subscriber)
 		Stop(ctx context.Context) error
 	}
 
 	inBody struct {
 		ctx       context.Context
-		body      interface{}
+		body      any
 		returnErr chan error
 	}
 )
@@ -46,7 +44,7 @@ func NewPublisher(ctx context.Context) *publisher {
 	return p
 }
 
-func (p *publisher) Publish(ctx context.Context, body interface{}, err chan error) {
+func (p *publisher) Publish(ctx context.Context, body any, err chan error) {
 	in := inBody{
 		ctx:       ctx,
 		body:      body,
@@ -56,9 +54,9 @@ func (p *publisher) Publish(ctx context.Context, body interface{}, err chan erro
 	p.in <- in
 }
 
-func (p *publisher) start(ctx context.Context) {
-	defer log.Info(ctx, "[publisher] finish listening for messages")
-	log.Info(ctx, "[publisher] start listening for messages")
+func (p *publisher) start(_ context.Context) {
+	defer log.Println("[publisher] finish listening for messages")
+	log.Println("[publisher] start listening for messages")
 
 	for {
 		select {
@@ -80,26 +78,11 @@ func (p *publisher) AddSubscriber(s Subscriber) {
 }
 
 func (p *publisher) Stop(ctx context.Context) error {
-	log.Info(ctx, "publisher stopping")
+	log.Println(ctx, "publisher stopping")
 	stopAck := make(chan struct{})
 	p.stop <- stopAck
 	<-stopAck
-	log.Info(ctx, "publisher stopped")
+	log.Println(ctx, "publisher stopped")
 
 	return nil
-}
-
-type subscribersError []error
-
-func (s subscribersError) Error() string {
-	buffer := bytes.Buffer{}
-
-	for i, err := range s {
-		if i > 0 {
-			buffer.WriteString(", ")
-		}
-		buffer.WriteString(err.Error())
-	}
-
-	return buffer.String()
 }
