@@ -1,62 +1,75 @@
 package main
 
 import (
-	"cohcop/pkg/imageprocessing"
-	order2 "cohcop/pkg/order"
-	"image"
+	"context"
+	"errors"
+	"github.com/samber/do"
+	"gocourse15/pkg/myhttp"
+	"gocourse15/pkg/scheduler"
+	"gocourse15/providers"
 	"log"
+	"net/http"
+	"os/signal"
+	"sync"
+	"syscall"
 )
 
 func main() {
-	// high_coupling
-	// Створення нового користувача
-	user := order2.User{
-		Name:     "John Doe",
-		Email:    "johndoe@example.com",
-		Password: "password",
-	}
+	// create injector
+	injector := do.DefaultInjector
+	ctx := context.Background()
 
-	// Створення нового замовлення
-	order := order2.Order{
-		User:       user,
-		Product:    "Laptop",
-		TotalPrice: 1000,
-	}
+	// listen to os interrupt signals and close the context
+	ctx, cancelFunc := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT, syscall.SIGKILL)
+	defer cancelFunc()
 
-	// Обробка замовлення та відправлення повідомлення користувачу
-	order2.ProcessOrder(order)
+	// inject the signal notify context
+	do.ProvideValue(injector, ctx)
 
-	// low_coupling
-	op := order2.NewOrderProcessor(nil, nil, nil)
-	if err := op.ProcessOrder(order2.OrderIndependent{}); err != nil {
-		log.Println(`Some errors`)
-	}
+	providers.Provide(injector)
 
-	//high_cohesion
-	i := imageprocessing.Image{}
-	i.AdjustBrightness(0.65)
-	i.Resize(65, 200)
-	i.ApplyGlareEffect(0.65)
-	if err := i.Do(); err != nil {
-		log.Println(`Some errors`)
-	}
+	waitForTheEnd := &sync.WaitGroup{}
 
-	//low_cohesion
-	var iGray image.Image
-	iGray = &image.Gray{}
-	iGray = imageprocessing.ConvertToGray(iGray)
-	iGray = imageprocessing.Resize(iGray, 100, 200)
+	// start the http server
+	go func() {
+		waitForTheEnd.Add(1)
+		defer waitForTheEnd.Done()
 
-	log.Println(iGray)
+		log.Println("Starting HTTP server")
+		httpServer := do.MustInvoke[*myhttp.HTTP](injector)
+		go func() {
+			<-ctx.Done()
+			if err := httpServer.Shutdown(); err != nil {
+				log.Fatalln(err)
+			}
+		}()
+		if err := httpServer.Start(); err != nil {
+			if !errors.Is(err, http.ErrServerClosed) {
+				log.Fatalln(err)
+			}
+		}
+	}()
 
-	// exercise:
-	// Студенти самі мусять створити MVC проект, який має всі необхідні шари.
-	// Це може бути просто бібліотека, контролери якої приймають структуру із вхідними параметрами,
-	// звертаються до моделі із даними (попередньо створеними) і заповнюють цими даними строку із плейсхолдерами
-	// за допомогою Sprintf. І цю строку повертають в клієнтський код.
-	// Як ідея, це може бути генератор текстів для реферата. Нехай є текст про загарбництво розвинутою країною
-	// туземного племені, але назва країни, племені, опис центральної події і імена головних героїв - плейсхолдери.
-	// Тут може бути як історія Аватара, так і історія Покахонтес, так і будьяка інша.
-	// На вхід отримуємо "історія покахонтес", це як ключ для масиву даних, який зберігає необхідні змінни, якими заповнює
-	// зарання приготований текст.
+	// start the scheduler service
+	go func() {
+		waitForTheEnd.Add(1)
+		defer waitForTheEnd.Done()
+
+		log.Println("Starting scheduler")
+		tasksScheduler := do.MustInvoke[*scheduler.Scheduler](injector)
+		go func() {
+			<-ctx.Done()
+			tasksScheduler.Shutdown()
+		}()
+		if err := tasksScheduler.Manage(ctx); err != nil {
+			if err != nil {
+				log.Fatalln(err)
+			}
+		}
+	}()
+
+	<-ctx.Done()
+	waitForTheEnd.Wait()
+
+	return
 }
