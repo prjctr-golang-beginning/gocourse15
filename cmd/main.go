@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/samber/do"
+	"gocourse15/app"
 	"gocourse15/pkg/myhttp"
 	"gocourse15/pkg/scheduler"
 	"gocourse15/providers"
@@ -67,6 +68,12 @@ func main() {
 			}
 		}
 	}()
+
+	// test
+	service := do.MustInvoke[*app.Service](injector)
+	if err := service.Do(ctx); err != nil {
+		log.Fatalln(err)
+	}
 
 	<-ctx.Done()
 	waitForTheEnd.Wait()
